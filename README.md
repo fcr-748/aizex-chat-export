@@ -29,14 +29,14 @@ Aizex 这类 OpenAI 风格镜像面板（`*.memofun.net` / `*.aizex.net`）的�
 
 1. 用 Chrome 或 Edge 登录你的面板，进入聊天页面（左侧能看到会话列表）
 2. 按 `F12` 打开开发者工具，切到 **Console（控制台）**
-3. 打开 [src/aizex_export_v342.js](src/aizex_export_v342.js)，全选复制全部内容
+3. 打开 [src/aizex_export_v343.js](src/aizex_export_v343.js)，全选复制全部内容
 4. 粘贴到控制台，按回车
 5. 按页面右上角浮窗的提示：选保存文件夹 → 开始导出
 
 > 换新面板时，可以先粘贴 [tools/识别面板类型.js](tools/识别面板类型.js) 判断这个站点受不受支持。
 > 老版本脚本（v1 / v2 / v3 / v3.1）留在 [src/](src/) 里只作对照，不推荐使用。
 
-## 特性（当前 v3.42）
+## 特性（当前 v3.43）
 
 - **零安装**：控制台脚本不需要 Node / Python / 任何依赖，只用浏览器自带能力
 - **完整抓取**：优先接口直连；接口不可用时点开面板真实的折叠控件（`span.nextc-batch-trigger-action` 等）逐批展开，直到面板不再显示折叠块
@@ -95,18 +95,19 @@ Aizex 这类 OpenAI 风格镜像面板（`*.memofun.net` / `*.aizex.net`）的�
 │   ├── aizex_export_v339.js            # v3.39：图片兜底下载 + 展开提速
 │   ├── aizex_export_v340.js            # v3.40：开头缺的段落补到开头
 │   ├── aizex_export_v341.js            # v3.41：接口链断了按全节点取 + 页面取更全那份
-│   └── aizex_export_v342.js            # v3.42（推荐）：消息里的图不再被界面过滤误伤
+│   ├── aizex_export_v342.js            # v3.42：消息里的图不再被界面过滤误伤
+│   └── aizex_export_v343.js            # v3.43（推荐）：下不到的图给可点链接
 ├── extension/                          # Chrome / Edge 扩展（Manifest V3）
 │   ├── manifest.json
 │   ├── popup.html / popup.js           # 点扩展图标后的弹窗
 │   ├── licensing.js                    # 激活码离线校验（密钥是占位符，自己改）
-│   ├── src/aizex_export.js             # 导出脚本本体（内容同 v3.42）
+│   ├── src/aizex_export.js             # 导出脚本本体（内容同 v3.43）
 │   └── README.md
 ├── tools/
 │   ├── aizex_bridge_server.js          # 可选：本地桥接服务（127.0.0.1:8787）
 │   ├── keygen.js                       # 生成激活码（密钥与 licensing.js 一致）
 │   ├── test_licensing.mjs              # 激活码自测
-│   ├── test_md_format.mjs              # Markdown 转换回归测试（公式/定界符/还原/去重/台账/附件/分类/图标过滤/兜底/位置合并/图片，105 项）
+│   ├── test_md_format.mjs              # Markdown 转换回归测试（公式/定界符/还原/去重/台账/附件/分类/图标过滤/兜底/位置合并/图片，106 项）
 │   └── 识别面板类型.js                  # 判断站点属于哪套前端、能不能用本导出器
 ├── docs/
 │   ├── 使用说明_v1.md
@@ -129,7 +130,8 @@ Aizex 这类 OpenAI 风格镜像面板（`*.memofun.net` / `*.aizex.net`）的�
 │   ├── 使用说明_v339.md
 │   ├── 使用说明_v340.md
 │   ├── 使用说明_v341.md
-│   └── 使用说明_v342.md
+│   ├── 使用说明_v342.md
+│   └── 使用说明_v343.md
 └── sample/
     └── sample_export.md                # 导出文件格式示例
 ```

@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v342.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v343.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------
@@ -534,6 +534,11 @@ check('兜底成功就不写"未下载成功"', !fellBack.includes('未下载成
 check('兜底用的地址被记下来', Object.keys(failAtt.usedUrl).length === 1, failAtt.usedUrl);
 const noFallback = api.resolveAttachments('［图片:file-jNgKsM6YtMBIHm5BSsVSgx］看图', { total: 1, map: { 'file-x': '' }, used: {}, usedUrl: {} }, []);
 check('确实没图可用才写明未取到', noFallback.includes('［图片未取到］'), noFallback);
+// 文件下不到、但有浏览器用过的地址 → 至少给个可点的链接
+const linkOnly = api.resolveAttachments('［图片:file-jNgKsM6YtMBIHm5BSsVSgx］看图',
+  { total: 1, map: { 'file-jNgKsM6YtMBIHm5BSsVSgx': '' }, used: {}, usedUrl: {} },
+  ['https://files.example.com/xx/photo.jpg?token=abc']);
+check('下不到文件时给可点原图链接', linkOnly.includes('[点这里打开原图](https://files.example.com/xx/photo.jpg?token=abc)'), linkOnly);
 
 // 24) 接口消息提取：parent 链断了（镜像常见）时要能按"整张图按时间排"取全
 function mkNode(id, parent, role, text, t) {
