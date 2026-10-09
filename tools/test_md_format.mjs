@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v343.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v344.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------
@@ -65,6 +65,13 @@ if (m0 < 0 || m1 < 0 || m1 <= m0) {
   console.error('FAIL 没能从脚本里定位 toMarkdown（v338 结构变了？）');
   process.exit(1);
 }
+const s0 = src.indexOf('  async function sniffExt(');
+const s1 = src.indexOf('  async function saveImageBlob(');
+if (s0 < 0 || s1 < 0 || s1 <= s0) {
+  console.error('FAIL 没能从脚本里定位 sniffExt（v344 结构变了？）');
+  process.exit(1);
+}
+const snippetSniff = src.slice(s0, s1);
 const snippetToMd = src.slice(m0, m1);
 // 接口消息提取那段（链断了要能按全部节点取）
 const p0 = src.indexOf('  function mappingToMessages(');
@@ -174,6 +181,7 @@ const factory = new Function('state', snippetConsts + snippet + snippetKey + '\n
 const api = factory(globalThis.state);
 const ledgerApi = new Function('state', 'writeFile', 'LEDGER_FILE', snippetLedger + '\n; return { toEpochMs, fmtLocalTime, snapshotLedger, ledgerTouch, buildPending };')(globalThis.state, async () => {}, '_同步台账.json');
 const imgApi = new Function(snippetImg + '\n; return { isUiImg, isTinyImg, UI_IMG_RE };')();
+const sniffApi = new Function(snippetSniff + '\n; return { sniffExt };')();
 const mdApi = new Function('state', 'location', snippetConsts + snippet + snippetKey + snippetToMd +
   '\n; return { toMarkdown };')(globalThis.state, { host: 'test.local' });
 const mapApi = new Function('state', snippetConsts + snippet + snippetMap +
@@ -572,6 +580,27 @@ const brokenMsgs = mapApi.mappingToMessages(mapBroken, null, 'a10');
 check('链断了也能取全（按全部节点+时间）', brokenMsgs.length === 10 && brokenMsgs.__apiMode === 'all-nodes',
   { n: brokenMsgs.length, mode: brokenMsgs.__apiMode, chain: brokenMsgs.__chainLen, all: brokenMsgs.__allLen });
 check('链断时按时间正序', brokenMsgs[0].text.indexOf('很早的一问') === 0 && brokenMsgs[9].text.indexOf('最后答') === 0, brokenMsgs.map((m) => m.text));
+
+// 25) 用文件头魔数判断下载到的到底是什么（镜像站的 200 响应常常不带 content-type）
+function fakeBlob(bytes) {
+  return { size: bytes.length, slice: () => ({ arrayBuffer: async () => new Uint8Array(bytes).buffer }) };
+}
+const sniffCases = [
+  ['png', [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A]],
+  ['jpg', [0xFF, 0xD8, 0xFF, 0xE0, 0x00]],
+  ['gif', [0x47, 0x49, 0x46, 0x38, 0x39]],
+  ['webp', [0x52, 0x49, 0x46, 0x46, 0x00, 0x00]],
+  ['pdf', [0x25, 0x50, 0x44, 0x46, 0x2D]],
+  ['bmp', [0x42, 0x4D, 0x00, 0x00]],
+];
+let sniffOk = 0;
+for (const pair of sniffCases) {
+  const got = await sniffApi.sniffExt(fakeBlob(pair[1]));
+  if (got === pair[0]) sniffOk++;
+  else console.log('  （识别错：' + pair[0] + ' → ' + got + '）');
+}
+check('文件头魔数识别图片/文件类型', sniffOk === sniffCases.length, sniffOk + '/' + sniffCases.length);
+check('认不出来的返回空（不硬塞扩展名）', (await sniffApi.sniffExt(fakeBlob([0x3C, 0x21, 0x44, 0x4F, 0x43]))) === '', 'html-like');
 
 console.log('\n通过 ' + pass + ' / 失败 ' + fail);
 process.exit(fail ? 1 : 0);
