@@ -29,14 +29,14 @@ Aizex 这类 OpenAI 风格镜像面板（`*.memofun.net` / `*.aizex.net`）的�
 
 1. 用 Chrome 或 Edge 登录你的面板，进入聊天页面（左侧能看到会话列表）
 2. 按 `F12` 打开开发者工具，切到 **Console（控制台）**
-3. 打开 [src/aizex_export_v337.js](src/aizex_export_v337.js)，全选复制全部内容
+3. 打开 [src/aizex_export_v338.js](src/aizex_export_v338.js)，全选复制全部内容
 4. 粘贴到控制台，按回车
 5. 按页面右上角浮窗的提示：选保存文件夹 → 开始导出
 
 > 换新面板时，可以先粘贴 [tools/识别面板类型.js](tools/识别面板类型.js) 判断这个站点受不受支持。
 > 老版本脚本（v1 / v2 / v3 / v3.1）留在 [src/](src/) 里只作对照，不推荐使用。
 
-## 特性（当前 v3.37）
+## 特性（当前 v3.38）
 
 - **零安装**：控制台脚本不需要 Node / Python / 任何依赖，只用浏览器自带能力
 - **完整抓取**：优先接口直连；接口不可用时点开面板真实的折叠控件（`span.nextc-batch-trigger-action` 等）逐批展开，直到面板不再显示折叠块
@@ -48,6 +48,7 @@ Aizex 这类 OpenAI 风格镜像面板（`*.memofun.net` / `*.aizex.net`）的�
 - **公式保真**：以接口的原始 Markdown 为准（公式是 LaTeX 原文），`\[…\]` / `\(…\)` 统一换成预览器认的 `$$…$$` / `$…$`；只有独占一行的 `\[…\]` 才做独立块，句中 / 跨行的一律按行内，不会在段落中间劈出公式把后面的 `$` 带歪
 - **每轮清单很快**：接口能列全就直接用，不再重复滚侧边栏（那一趟能省几分钟）
 - **每轮按类型报清楚**：新对话 / 面板上有更新 / 旧格式升级，状态栏和诊断都分开写
+- **折叠一定点开**：打开后先等折叠块渲染出来再判断，且预算按轮数放大，不会中途掐断；没抓全的文件会标记为待补、下次自动重抓
 - **两种图片指针都认**（`file-service://` 与 `sediment://`），下载不到的图会在原地写明原因
 - **界面图标不会被当成会话图片**：只从消息节点里捞图，小图标/Logo/按钮图一律跳过
 - **附件就地标注**：图片/文件放在它出现在的那条消息里，写 ![](images/xxx.png) + > 附件: 名字，不再堆到文末
@@ -85,18 +86,19 @@ Aizex 这类 OpenAI 风格镜像面板（`*.memofun.net` / `*.aizex.net`）的�
 │   ├── aizex_export_v334.js            # v3.34：新对话/有更新分类报告
 │   ├── aizex_export_v335.js            # v3.35：接口列全就不滚侧边栏
 │   ├── aizex_export_v336.js            # v3.36：界面图标不当成会话图片
-│   └── aizex_export_v337.js            # v3.37（推荐）：sediment:// 图片也认
+│   ├── aizex_export_v337.js            # v3.37：sediment:// 图片也认
+│   └── aizex_export_v338.js            # v3.38（推荐）：不再漏点展开 + 残缺自动重抓
 ├── extension/                          # Chrome / Edge 扩展（Manifest V3）
 │   ├── manifest.json
 │   ├── popup.html / popup.js           # 点扩展图标后的弹窗
 │   ├── licensing.js                    # 激活码离线校验（密钥是占位符，自己改）
-│   ├── src/aizex_export.js             # 导出脚本本体（内容同 v3.37）
+│   ├── src/aizex_export.js             # 导出脚本本体（内容同 v3.38）
 │   └── README.md
 ├── tools/
 │   ├── aizex_bridge_server.js          # 可选：本地桥接服务（127.0.0.1:8787）
 │   ├── keygen.js                       # 生成激活码（密钥与 licensing.js 一致）
 │   ├── test_licensing.mjs              # 激活码自测
-│   ├── test_md_format.mjs              # Markdown 转换回归测试（公式/定界符/还原/去重/台账/附件/分类/图标过滤，85 项）
+│   ├── test_md_format.mjs              # Markdown 转换回归测试（公式/定界符/还原/去重/台账/附件/分类/图标过滤，92 项）
 │   └── 识别面板类型.js                  # 判断站点属于哪套前端、能不能用本导出器
 ├── docs/
 │   ├── 使用说明_v1.md
@@ -114,7 +116,8 @@ Aizex 这类 OpenAI 风格镜像面板（`*.memofun.net` / `*.aizex.net`）的�
 │   ├── 使用说明_v334.md
 │   ├── 使用说明_v335.md
 │   ├── 使用说明_v336.md
-│   └── 使用说明_v337.md
+│   ├── 使用说明_v337.md
+│   └── 使用说明_v338.md
 └── sample/
     └── sample_export.md                # 导出文件格式示例
 ```

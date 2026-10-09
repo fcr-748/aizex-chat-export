@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v337.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v338.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------
@@ -58,6 +58,14 @@ if (n0 < 0 || n1 < 0 || n1 <= n0) {
   process.exit(1);
 }
 const snippetImg = src.slice(n0, n1);
+// toMarkdown 单独抠出来（测"没抓全就不冒充已抓全"和"更早的消息补到开头"）
+const m0 = src.indexOf('  function toMarkdown(');
+const m1 = src.indexOf('  async function writeMd(');
+if (m0 < 0 || m1 < 0 || m1 <= m0) {
+  console.error('FAIL 没能从脚本里定位 toMarkdown（v338 结构变了？）');
+  process.exit(1);
+}
+const snippetToMd = src.slice(m0, m1);
 
 // ---------- 极小 DOM 替身 ----------
 function txt(v) { return { nodeType: 3, nodeValue: v, childNodes: [], parentElement: null }; }
@@ -154,10 +162,12 @@ function matchesOne(node, sel) {
 
 // ---------- 跑测试 ----------
 globalThis.state = {};
-const factory = new Function('state', snippetConsts + snippet + snippetKey + '\n; return { mdFromElement, normalizeText, tidyMarkdown, collapseRepeats, looksLikePanelJson, stripPanelJson, cleanText, normalizeMathDelims, unionExtra, msgKey, proseOf, katexToLatex, delimsFromPieces, katexCoverageOk, resolveAttachments, nameHintsFromMsgs, attachTokenFromBlob };');
+const factory = new Function('state', snippetConsts + snippet + snippetKey + '\n; return { mdFromElement, normalizeText, tidyMarkdown, collapseRepeats, looksLikePanelJson, stripPanelJson, cleanText, normalizeMathDelims, unionExtra, splitExtra, msgKey, proseOf, katexToLatex, delimsFromPieces, katexCoverageOk, resolveAttachments, nameHintsFromMsgs, attachTokenFromBlob };');
 const api = factory(globalThis.state);
 const ledgerApi = new Function('state', 'writeFile', 'LEDGER_FILE', snippetLedger + '\n; return { toEpochMs, fmtLocalTime, snapshotLedger, ledgerTouch, buildPending };')(globalThis.state, async () => {}, '_同步台账.json');
 const imgApi = new Function(snippetImg + '\n; return { isUiImg, isTinyImg, UI_IMG_RE };')();
+const mdApi = new Function('state', 'location', snippetConsts + snippet + snippetKey + snippetToMd +
+  '\n; return { toMarkdown };')(globalThis.state, { host: 'test.local' });
 
 let pass = 0, fail = 0;
 function check(name, cond, extra) {
@@ -458,6 +468,31 @@ check('尺寸属性很小也被过滤', imgApi.isUiImg(fakeImg({ attrs: { width:
 check('URL 里带 logo/icon 的被过滤', imgApi.isUiImg(bigImg, 'https://cdn.example.com/assets/app-logo.png') === true, 'logo');
 check('在按钮/侧边栏里的图被过滤', imgApi.isUiImg(fakeImg({ w: 1200, h: 900, inUi: true }), 'https://files.example.com/xx/y.jpg') === true, 'inUi');
 check('Scholar GPT 那种侧边栏 Logo 会被过滤', imgApi.isUiImg(fakeImg({ w: 96, h: 96, inUi: true }), 'https://files.example.com/xx/z.png') === true, 'scholar');
+
+// 21) 多出来的消息按位置补：更早的补到开头，更晚的接到后面，对不上的才进附录
+const older1 = { role: 'user', text: '那我们先从问题说起，这次想研究毕业生就业压力' };
+const older2 = { role: 'assistant', text: '好的，先把研究对象拆成三个层次来看' };
+const same1 = { role: 'user', text: '还是爬招聘网站的初级岗位吧 真个获取数据的过程是怎么样的？' };
+const same2 = { role: 'assistant', text: '抓取流程一般分四步：确定站点、翻页、解析、落库' };
+const newer = { role: 'assistant', text: '补充一句：记得给每条记录留下来源链接' };
+const chosen = [same1, same2];
+const sp1 = api.splitExtra(chosen, [older1, older2, same1, same2]);
+check('更早的消息被识别成"补到前面"', sp1.before.length === 2 && sp1.before[0].text === older1.text, sp1.before);
+const sp2 = api.splitExtra(chosen, [same1, same2, newer]);
+check('更晚的消息被识别成"接到后面"', sp2.after.length === 1 && sp2.after[0].text === newer.text, sp2.after);
+const sp3 = api.splitExtra(chosen, [{ role: 'assistant', text: '完全不相干的一段内容，用来验证兜底' }]);
+check('位置对不上的进附录', sp3.orphan.length === 1 && !sp3.before.length && !sp3.after.length, sp3);
+
+// 22) 没抓全不冒充已抓全；更早的消息写在正文开头
+const convMeta = { id: 'aaaa1111-2222-3333-4444-555555555555', title: '测试会话' };
+const partialMd = mdApi.toMarkdown(convMeta, chosen, 1, [], null,
+  { partial: true, partialNote: '面板标 7 轮，实际只抓到 6 条' }, [older1, older2]);
+check('没抓全写 partial（下次会重抓）', partialMd.includes('> 抓取机制: partial'), partialMd.split('\n').slice(0, 10));
+check('没抓全写明原因', partialMd.includes('未抓全（面板标 7 轮，实际只抓到 6 条）'), partialMd.split('\n').slice(0, 10));
+check('更早的消息补在开头', partialMd.indexOf('## 补：更早的消息') > 0 &&
+  partialMd.indexOf('## 补：更早的消息') < partialMd.indexOf('## 用户'), partialMd.indexOf('## 补：更早的消息'));
+const fullMd = mdApi.toMarkdown(convMeta, chosen, 1, [], null, null, []);
+check('抓全了写 new', fullMd.includes('> 抓取机制: new') && !fullMd.includes('partial'), fullMd.split('\n').slice(0, 9));
 
 console.log('\n通过 ' + pass + ' / 失败 ' + fail);
 process.exit(fail ? 1 : 0);
