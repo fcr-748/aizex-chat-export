@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v339.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v340.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------
@@ -482,6 +482,17 @@ const sp2 = api.splitExtra(chosen, [same1, same2, newer]);
 check('更晚的消息被识别成"接到后面"', sp2.after.length === 1 && sp2.after[0].text === newer.text, sp2.after);
 const sp3 = api.splitExtra(chosen, [{ role: 'assistant', text: '完全不相干的一段内容，用来验证兜底' }]);
 check('位置对不上的进附录', sp3.orphan.length === 1 && !sp3.before.length && !sp3.after.length, sp3);
+
+// 21b) 接口缺"开头一段"、页面版有 → 必须认出来是更早的（v3.40 修的正是这条）
+const mid1 = { role: 'user', text: '那你说说看招聘网站上那些岗位到底能不能反映就业压力' };
+const mid2 = { role: 'assistant', text: '能反映一部分，但要小心口径：岗位需求是流量，失业是存量' };
+const tail1 = { role: 'user', text: '那数据从哪来' };
+const tail2 = { role: 'assistant', text: '公开渠道有三类：统计年鉴、部门公报、招聘平台' };
+const apiPart = [tail1, tail2];
+const domFull = [older1, older2, mid1, mid2, tail1, tail2];   // 页面版是完整的，接口只有尾巴
+const sp4 = api.splitExtra(apiPart, domFull);
+check('接口缺的开头整段被认出来', sp4.before.length === 4 && sp4.before[0].text === older1.text, sp4.before.map((x) => x.text));
+check('开头的补全不重复正文已有的', !sp4.before.some((x) => x.text === tail1.text), sp4.before.map((x) => x.text));
 
 // 22) 没抓全不冒充已抓全；更早的消息写在正文开头
 const convMeta = { id: 'aaaa1111-2222-3333-4444-555555555555', title: '测试会话' };
