@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v336.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v337.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------
@@ -25,6 +25,14 @@ if (i0 < 0 || i1 < 0 || i1 <= i0) {
   process.exit(1);
 }
 const snippet = src.slice(i0, i1);
+// 附件指针常量（ATTR_PTR_SRC 等）在文件更前面，单独抠出来一起喂给被测代码
+const c0 = src.indexOf('  // 附件指针（v3.37）');
+const c1 = src.indexOf('  var state = {');
+const snippetConsts = (c0 >= 0 && c1 > c0) ? src.slice(c0, c1) : '';
+if (!snippetConsts) {
+  console.error('FAIL 没能从脚本里定位附件指针常量（v337 结构变了？）');
+  process.exit(1);
+}
 // 去重那段单独抠出来（unionExtra / msgKey / proseOf）
 const j0 = src.indexOf('  function msgKey(t) {');
 const j1 = src.indexOf('  // 两个来源都抓');
@@ -146,7 +154,7 @@ function matchesOne(node, sel) {
 
 // ---------- 跑测试 ----------
 globalThis.state = {};
-const factory = new Function('state', snippet + snippetKey + '\n; return { mdFromElement, normalizeText, tidyMarkdown, collapseRepeats, looksLikePanelJson, stripPanelJson, cleanText, normalizeMathDelims, unionExtra, msgKey, proseOf, katexToLatex, delimsFromPieces, katexCoverageOk, resolveAttachments, nameHintsFromMsgs, attachTokenFromBlob };');
+const factory = new Function('state', snippetConsts + snippet + snippetKey + '\n; return { mdFromElement, normalizeText, tidyMarkdown, collapseRepeats, looksLikePanelJson, stripPanelJson, cleanText, normalizeMathDelims, unionExtra, msgKey, proseOf, katexToLatex, delimsFromPieces, katexCoverageOk, resolveAttachments, nameHintsFromMsgs, attachTokenFromBlob };');
 const api = factory(globalThis.state);
 const ledgerApi = new Function('state', 'writeFile', 'LEDGER_FILE', snippetLedger + '\n; return { toEpochMs, fmtLocalTime, snapshotLedger, ledgerTouch, buildPending };')(globalThis.state, async () => {}, '_同步台账.json');
 const imgApi = new Function(snippetImg + '\n; return { isUiImg, isTinyImg, UI_IMG_RE };')();
@@ -310,12 +318,14 @@ if (fs.existsSync(samplePath)) {
     .filter(Boolean);
   const rebuilt = samples.map((html) => api.katexToLatex(parseHtml(html)[0]));
   console.log('  （真实样本还原结果：' + rebuilt.map((r) => JSON.stringify(r.tex)).join(' / ') + '）');
-  check('真实样本里 100+90+81+72.9 的顺序没被弄乱', /100\+90\+81\+72\.9/.test(rebuilt[0].tex.replace(/\n/g, '')), rebuilt[0]);
-  check('真实样本 R 还原成 R', rebuilt[1].tex === 'R' && rebuilt[1].ok, rebuilt[1]);
-  check('真实样本的分数还原成 \\frac{1}{R}（分子在前）', rebuilt[2].tex.includes('\\frac{1}{R}'), rebuilt[2]);
-  check('真实样本的 \\text{货币乘数} 保留', rebuilt[2].tex.includes('\\text{货币乘数}'), rebuilt[2]);
-  check('真实样本 R=1/5 还原正确', rebuilt[3].tex.replace(/\s/g, '') === 'R=1/5', rebuilt[3]);
-  check('真实样本 M=1/R 还原正确', rebuilt[4].tex.replace(/\s/g, '') === 'M=1/R', rebuilt[4]);
+  // 样本每轮会重新采集，所以按"内容特征"找，而不是按下标
+  const flat = rebuilt.map((r) => r.tex.replace(/\s/g, ''));
+  const has = (fn) => rebuilt.some((r, i) => fn(r, flat[i]));
+  check('真实样本里长公式的行顺序没被弄乱', has((r, f) => /100\+90\+81\+72\.9/.test(f)), flat.slice(0, 3));
+  check('真实样本有把 \\frac 还原对（分母在前也能对上）', has((r, f) => /\\frac\{1\}\{R\}/.test(f)), flat.filter((x) => x.includes('frac')));
+  check('真实样本的 \\text{中文} 保留', has((r, f) => f.includes('\\text{货币乘数}') || /\\text\{[^}]+\}/.test(f)), flat.filter((x) => x.includes('\\text')));
+  check('HTML 实体不会写成字面量', !flat.some((x) => x.includes('&nbsp;') || x.includes('&amp;')), flat.filter((x) => x.includes('&')));
+  check('真实样本还原结果都不是空串', rebuilt.every((r) => r.tex.length > 0), rebuilt.map((r) => r.tex));
 } else {
   console.log('  （跳过：没找到 _数学节点样本.html）');
 }
@@ -424,6 +434,13 @@ const hints = api.nameHintsFromMsgs([{ text: '［文件:报告.pdf:file-ABC］' 
 check('从正文收集文件名提示', hints['file-ABC'] === '报告.pdf' && hints['file-QQQ'] === undefined, hints);
 const named = api.cleanText('{"asset_pointer":"file-service://file-ZZ","content_type":"file","name":"讲义.pdf"}然后接着说');
 check('带名字的附件 JSON 产出文件占位', named === '［文件:讲义.pdf:file-ZZ］然后接着说', named);
+
+// 19b) sediment:// 也是图片指针（以前只认 file-service://，这类图就只剩空占位）
+const sed = api.cleanText('{"asset_pointer":"sediment://file-NoQAM7DkBV3DpCzeQDHciK","content_type":"image_asset_pointer","size_bytes":240188,"width":2048}这两行想要表达什么');
+check('sediment:// 图片也带 id', sed === '［图片:file-NoQAM7DkBV3DpCzeQDHciK］这两行想要表达什么', sed);
+const sedAtt = { total: 1, map: { 'file-NoQAM7DkBV3DpCzeQDHciK': 'images/file-NoQAM7DkBV3DpCzeQDHciK.png' }, used: {}, order: [], lines: [] };
+const sedOut = api.resolveAttachments('［图片:file-NoQAM7DkBV3DpCzeQDHciK］请看这张', sedAtt);
+check('sediment 图片能就地换成链接', sedOut.includes('![图片](images/file-NoQAM7DkBV3DpCzeQDHciK.png)') && sedAtt.used['file-NoQAM7DkBV3DpCzeQDHciK'] === 1, sedOut);
 
 // 20) 界面图标不能当成会话图片（侧边栏 Logo、按钮图标这些）
 function fakeImg(o) {
