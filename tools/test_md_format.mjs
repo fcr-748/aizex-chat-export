@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v335.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v336.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------
@@ -42,6 +42,14 @@ if (k0 < 0 || k1 < 0 || k2 < 0 || k1 <= k0) {
   process.exit(1);
 }
 const snippetLedger = src.slice(k0, k1) + src.slice(src.indexOf('  function buildPending(convs) {'), k2);
+// 页面图片过滤那段（界面图标不能当成会话图片）
+const n0 = src.indexOf('  var UI_IMG_RE =');
+const n1 = src.indexOf('  // ---------------- HTML → Markdown');
+if (n0 < 0 || n1 < 0 || n1 <= n0) {
+  console.error('FAIL 没能从脚本里定位图片过滤代码（v336 结构变了？）');
+  process.exit(1);
+}
+const snippetImg = src.slice(n0, n1);
 
 // ---------- 极小 DOM 替身 ----------
 function txt(v) { return { nodeType: 3, nodeValue: v, childNodes: [], parentElement: null }; }
@@ -141,6 +149,7 @@ globalThis.state = {};
 const factory = new Function('state', snippet + snippetKey + '\n; return { mdFromElement, normalizeText, tidyMarkdown, collapseRepeats, looksLikePanelJson, stripPanelJson, cleanText, normalizeMathDelims, unionExtra, msgKey, proseOf, katexToLatex, delimsFromPieces, katexCoverageOk, resolveAttachments, nameHintsFromMsgs, attachTokenFromBlob };');
 const api = factory(globalThis.state);
 const ledgerApi = new Function('state', 'writeFile', 'LEDGER_FILE', snippetLedger + '\n; return { toEpochMs, fmtLocalTime, snapshotLedger, ledgerTouch, buildPending };')(globalThis.state, async () => {}, '_同步台账.json');
+const imgApi = new Function(snippetImg + '\n; return { isUiImg, isTinyImg, UI_IMG_RE };')();
 
 let pass = 0, fail = 0;
 function check(name, cond, extra) {
@@ -415,6 +424,23 @@ const hints = api.nameHintsFromMsgs([{ text: '［文件:报告.pdf:file-ABC］' 
 check('从正文收集文件名提示', hints['file-ABC'] === '报告.pdf' && hints['file-QQQ'] === undefined, hints);
 const named = api.cleanText('{"asset_pointer":"file-service://file-ZZ","content_type":"file","name":"讲义.pdf"}然后接着说');
 check('带名字的附件 JSON 产出文件占位', named === '［文件:讲义.pdf:file-ZZ］然后接着说', named);
+
+// 20) 界面图标不能当成会话图片（侧边栏 Logo、按钮图标这些）
+function fakeImg(o) {
+  return {
+    naturalWidth: o.w || 0, naturalHeight: o.h || 0,
+    clientWidth: o.cw || 0, clientHeight: o.ch || 0,
+    getAttribute(name) { return (o.attrs && o.attrs[name]) || null; },
+    closest(sel) { return o.inUi ? { tagName: 'BUTTON' } : null; },
+  };
+}
+const bigImg = fakeImg({ w: 1200, h: 900 });
+check('正常大图不算界面图', imgApi.isUiImg(bigImg, 'https://files.example.com/xx/abc123.jpg') === false, 'big');
+check('小图标被过滤（真实像素 ≤48）', imgApi.isUiImg(fakeImg({ w: 32, h: 32 }), 'https://files.example.com/xx/y.jpg') === true, 'tiny');
+check('尺寸属性很小也被过滤', imgApi.isUiImg(fakeImg({ attrs: { width: '24', height: '24' } }), 'https://files.example.com/xx/y.jpg') === true, 'attr');
+check('URL 里带 logo/icon 的被过滤', imgApi.isUiImg(bigImg, 'https://cdn.example.com/assets/app-logo.png') === true, 'logo');
+check('在按钮/侧边栏里的图被过滤', imgApi.isUiImg(fakeImg({ w: 1200, h: 900, inUi: true }), 'https://files.example.com/xx/y.jpg') === true, 'inUi');
+check('Scholar GPT 那种侧边栏 Logo 会被过滤', imgApi.isUiImg(fakeImg({ w: 96, h: 96, inUi: true }), 'https://files.example.com/xx/z.png') === true, 'scholar');
 
 console.log('\n通过 ' + pass + ' / 失败 ' + fail);
 process.exit(fail ? 1 : 0);
