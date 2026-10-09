@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v332.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v333.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------
@@ -138,7 +138,7 @@ function matchesOne(node, sel) {
 
 // ---------- 跑测试 ----------
 globalThis.state = {};
-const factory = new Function('state', snippet + snippetKey + '\n; return { mdFromElement, normalizeText, tidyMarkdown, collapseRepeats, looksLikePanelJson, stripPanelJson, cleanText, normalizeMathDelims, unionExtra, msgKey, proseOf, katexToLatex, delimsFromPieces, katexCoverageOk };');
+const factory = new Function('state', snippet + snippetKey + '\n; return { mdFromElement, normalizeText, tidyMarkdown, collapseRepeats, looksLikePanelJson, stripPanelJson, cleanText, normalizeMathDelims, unionExtra, msgKey, proseOf, katexToLatex, delimsFromPieces, katexCoverageOk, resolveAttachments, nameHintsFromMsgs, attachTokenFromBlob };');
 const api = factory(globalThis.state);
 const ledgerApi = new Function('state', 'writeFile', 'LEDGER_FILE', snippetLedger + '\n; return { toEpochMs, fmtLocalTime, snapshotLedger, ledgerTouch, buildPending };')(globalThis.state, async () => {}, '_同步台账.json');
 
@@ -190,7 +190,7 @@ const noisy = el('div', {}, [
   el('div', {}, [txt('{"asset_pointer":"file-service://file-ABC","content_type":"image_asset_pointer","width":1139}这里的由类似性质1')]),
 ]);
 const outNoisy = api.mdFromElement(noisy);
-check('图片 JSON 被替换成占位符', outNoisy.includes('［图片］') && !outNoisy.includes('asset_pointer'), outNoisy);
+check('图片 JSON 被替换成占位符（带图片身份）', outNoisy.includes('［图片:file-ABC］') && !outNoisy.includes('asset_pointer'), outNoisy);
 check('占位后正文还在', outNoisy.includes('这里的由类似性质1'), outNoisy);
 
 // 5) 兜底去重 + 空白规整
@@ -220,10 +220,10 @@ const tail = ',"size_bytes":327298,"width":1005}请解释：为什么元素总�
 check('半截 JSON 残渣被清掉', api.cleanText(tail) === '请解释：为什么元素总数为2n', api.cleanText(tail));
 const blob = '{"asset_pointer":"file-service://file-ABC","content_type":"image_asset_pointer","fovea":null,"height":535,"metadata":{"dalle":null,"sanitized":true},"size_bytes":122948,"width":1139}这里的由类似性质1';
 const blobOut = api.cleanText(blob);
-check('整块 JSON 被清掉、正文留下', blobOut === '［图片］这里的由类似性质1', blobOut);
+check('整块 JSON 被清掉、正文留下（并留下图片身份）', blobOut === '［图片:file-ABC］这里的由类似性质1', blobOut);
 check('清理是幂等的', api.cleanText(blobOut) === blobOut, api.cleanText(blobOut));
 const twoImgs = api.cleanText('{"asset_pointer":"file-service://file-A","width":1}{"asset_pointer":"file-service://file-B","width":2}看图');
-check('连着两个 JSON 都清掉', twoImgs === '［图片］［图片］看图', twoImgs);
+check('连着两个 JSON 都清掉', twoImgs === '［图片:file-A］［图片:file-B］看图', twoImgs);
 
 // 9) 去重不能误伤：分隔线、笑声、正常文本
 check('不会把 ======== 压短', api.normalizeText('========') === '========', api.normalizeText('========'));
@@ -381,6 +381,23 @@ check('没抓到的更新不会被台账吞掉', lstate.ledger[B].updateEpoch ==
 // 抓到了就更新台账
 led.ledgerTouch({ id: B, title: '会话B', update_time: t1 + 999 }, { msgs: 3, chars: 100, file: 'B.md' });
 check('抓过之后台账更新成新的时间', lstate.ledger[B].updateEpoch === t1 + 999 && lstate.ledger[B].msgs === 3, lstate.ledger[B]);
+
+// 19) 附件就地标注（图片不再一律堆到文末）
+const att = { total: 2, map: { 'file-ABC': 'images/file-ABC.png', 'file-XYZ': '' }, used: {}, order: [], lines: [] };
+check('有文件名的附件写出文件名', api.cleanText('见附件 ［文件:报告.pdf:file-ABC］') === '见附件 ［文件:报告.pdf:file-ABC］', api.cleanText('见附件 ［文件:报告.pdf:file-ABC］'));
+const inlineImg = api.resolveAttachments('这是我的问题 ［图片:file-ABC］ 请解释', att);
+check('图片就地换成链接', inlineImg.includes('![图片](images/file-ABC.png)') && inlineImg.startsWith('这是我的问题 '), inlineImg);
+check('图片旁边带附件标注', inlineImg.includes('> 附件: `file-ABC`'), inlineImg);
+check('用过的附件被记下来（不再进文末附录）', att.used['file-ABC'] === 1, att.used);
+const namedFile = api.resolveAttachments('看这个 ［文件:报告.pdf:file-ABC］', att);
+check('文件名优先做标注', namedFile.includes('> 附件: `报告.pdf`'), namedFile);
+check('图片成块：标注后面不会粘住正文', api.resolveAttachments('［图片:file-ABC］后面的话', { map: { 'file-ABC': 'images/x.png' }, used: {} }).includes('`\n\n后面的话'), api.resolveAttachments('［图片:file-ABC］后面的话', { map: { 'file-ABC': 'images/x.png' }, used: {} }));
+const failed = api.resolveAttachments('这张 ［图片:file-XYZ］ 没下下来', att);
+check('没下下来的会说明', failed.includes('（未下载成功，可在面板里查看）') && !failed.includes('!['), failed);
+const hints = api.nameHintsFromMsgs([{ text: '［文件:报告.pdf:file-ABC］' }, { text: '［图片:file-QQQ］' }]);
+check('从正文收集文件名提示', hints['file-ABC'] === '报告.pdf' && hints['file-QQQ'] === undefined, hints);
+const named = api.cleanText('{"asset_pointer":"file-service://file-ZZ","content_type":"file","name":"讲义.pdf"}然后接着说');
+check('带名字的附件 JSON 产出文件占位', named === '［文件:讲义.pdf:file-ZZ］然后接着说', named);
 
 console.log('\n通过 ' + pass + ' / 失败 ' + fail);
 process.exit(fail ? 1 : 0);
