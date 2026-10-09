@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "对话记录归档助手（Aizex / ChatGPT 面板）",
+  "version": "1.0.0",
+  "description": "一键把面板里的全部对话完整导出到本地（含被折叠的历史轮次）。数据只写到你自己的电脑，不上传。",
+  "permissions": ["scripting", "activeTab", "storage", "downloads"],
+  "host_permissions": [
+    "https://*.memofun.net/*",
+    "https://*.aizex.net/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*"
+  ],
+  "action": {
+    "default_title": "导出对话记录",
+    "default_popup": "popup.html"
+  },
+  "web_accessible_resources": [
+    { "resources": ["src/aizex_export.js"], "matches": ["<all_urls>"] }
+  ]
+}

@@ -3,6 +3,10 @@ exports/
 out/
 *.log
 
+# 激活码（生成出来的卡密不要提交）
+keys_*.txt
+_licensing_for_test.mjs
+
 # 环境
 node_modules/
 .env
