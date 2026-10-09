@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v338.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v339.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------
@@ -493,6 +493,22 @@ check('更早的消息补在开头', partialMd.indexOf('## 补：更早的消息
   partialMd.indexOf('## 补：更早的消息') < partialMd.indexOf('## 用户'), partialMd.indexOf('## 补：更早的消息'));
 const fullMd = mdApi.toMarkdown(convMeta, chosen, 1, [], null, null, []);
 check('抓全了写 new', fullMd.includes('> 抓取机制: new') && !fullMd.includes('partial'), fullMd.split('\n').slice(0, 9));
+
+// 23) 指针下载失败时，用"这条消息里渲染出来的图片地址"兜底
+const msgUrls = ['https://files.example.com/xx/aBcDeF123456XyZ.png?x=1'];
+// 页面地址在下载时会被命名成 url-<后缀>，这里按同样的规则算出它的键
+const urlKey = 'url-' + msgUrls[0].replace(/[^a-z0-9]+/gi, '').slice(-24);
+const failAtt = {
+  total: 2, used: {}, usedUrl: {}, order: [], lines: [],
+  map: { 'file-jNgKsM6YtMBIHm5BSsVSgx': '', 'url-addr': 'images/url-addr.png' }
+};
+failAtt.map[msgUrls[0]] = 'images/' + urlKey + '.png';
+const fellBack = api.resolveAttachments('［图片:file-jNgKsM6YtMBIHm5BSsVSgx］这是我的问题', failAtt, msgUrls);
+check('文件流取不到时用页面地址兜底', fellBack.includes('![图片](images/' + urlKey + '.png)'), fellBack);
+check('兜底成功就不写"未下载成功"', !fellBack.includes('未下载成功'), fellBack);
+check('兜底用的地址被记下来', Object.keys(failAtt.usedUrl).length === 1, failAtt.usedUrl);
+const noFallback = api.resolveAttachments('［图片:file-jNgKsM6YtMBIHm5BSsVSgx］看图', { total: 1, map: { 'file-x': '' }, used: {}, usedUrl: {} }, []);
+check('确实没图可用才提示去看面板', noFallback.includes('未下载成功'), noFallback);
 
 console.log('\n通过 ' + pass + ' / 失败 ' + fail);
 process.exit(fail ? 1 : 0);
