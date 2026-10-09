@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v341.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v342.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------
@@ -449,7 +449,7 @@ const namedFile = api.resolveAttachments('看这个 ［文件:报告.pdf:file-AB
 check('文件名优先做标注', namedFile.includes('> 附件: `报告.pdf`'), namedFile);
 check('图片成块：标注后面不会粘住正文', api.resolveAttachments('［图片:file-ABC］后面的话', { map: { 'file-ABC': 'images/x.png' }, used: {} }).includes('`\n\n后面的话'), api.resolveAttachments('［图片:file-ABC］后面的话', { map: { 'file-ABC': 'images/x.png' }, used: {} }));
 const failed = api.resolveAttachments('这张 ［图片:file-XYZ］ 没下下来', att);
-check('没下下来的会说明', failed.includes('（未下载成功，可在面板里查看）') && !failed.includes('!['), failed);
+check('没下下来的会说明', failed.includes('［图片未取到］') && !failed.includes('!['), failed);
 const hints = api.nameHintsFromMsgs([{ text: '［文件:报告.pdf:file-ABC］' }, { text: '［图片:file-QQQ］' }]);
 check('从正文收集文件名提示', hints['file-ABC'] === '报告.pdf' && hints['file-QQQ'] === undefined, hints);
 const named = api.cleanText('{"asset_pointer":"file-service://file-ZZ","content_type":"file","name":"讲义.pdf"}然后接着说');
@@ -478,6 +478,10 @@ check('尺寸属性很小也被过滤', imgApi.isUiImg(fakeImg({ attrs: { width:
 check('URL 里带 logo/icon 的被过滤', imgApi.isUiImg(bigImg, 'https://cdn.example.com/assets/app-logo.png') === true, 'logo');
 check('在按钮/侧边栏里的图被过滤', imgApi.isUiImg(fakeImg({ w: 1200, h: 900, inUi: true }), 'https://files.example.com/xx/y.jpg') === true, 'inUi');
 check('Scholar GPT 那种侧边栏 Logo 会被过滤', imgApi.isUiImg(fakeImg({ w: 96, h: 96, inUi: true }), 'https://files.example.com/xx/z.png') === true, 'scholar');
+// v3.42：消息里的图不能因为"包在按钮里"就丢掉（面板的图片就是点开看大图的按钮）
+check('消息里的图即使包在按钮里也保留', imgApi.isUiImg(fakeImg({ w: 1200, h: 900, inUi: true }), 'https://files.example.com/xx/photo.jpg', true) === false, 'inMsg');
+check('消息里 16px 的小图标仍然过滤', imgApi.isUiImg(fakeImg({ w: 16, h: 16 }), 'https://files.example.com/xx/i.png', true) === true, 'tinyInMsg');
+check('消息里名字带 logo 的仍然过滤', imgApi.isUiImg(fakeImg({ w: 1200, h: 900 }), 'https://cdn.example.com/app-logo.png', true) === true, 'logoInMsg');
 
 // 21) 多出来的消息按位置补：更早的补到开头，更晚的接到后面，对不上的才进附录
 const older1 = { role: 'user', text: '那我们先从问题说起，这次想研究毕业生就业压力' };
@@ -529,7 +533,7 @@ check('文件流取不到时用页面地址兜底', fellBack.includes('![图片]
 check('兜底成功就不写"未下载成功"', !fellBack.includes('未下载成功'), fellBack);
 check('兜底用的地址被记下来', Object.keys(failAtt.usedUrl).length === 1, failAtt.usedUrl);
 const noFallback = api.resolveAttachments('［图片:file-jNgKsM6YtMBIHm5BSsVSgx］看图', { total: 1, map: { 'file-x': '' }, used: {}, usedUrl: {} }, []);
-check('确实没图可用才提示去看面板', noFallback.includes('未下载成功'), noFallback);
+check('确实没图可用才写明未取到', noFallback.includes('［图片未取到］'), noFallback);
 
 // 24) 接口消息提取：parent 链断了（镜像常见）时要能按"整张图按时间排"取全
 function mkNode(id, parent, role, text, t) {

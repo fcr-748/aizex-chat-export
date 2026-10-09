@@ -1,6 +1,6 @@
 # 对话记录归档助手（Chrome / Edge 扩展）
 
-导出脚本本体在 `src/aizex_export.js`（同 `../src/aizex_export_v341.js`，v3.41）。
+导出脚本本体在 `src/aizex_export.js`（同 `../src/aizex_export_v342.js`，v3.42）。
 扩展只是把它包起来：点一下图标就注入，并加上免费版 / 专业版的门禁。
 
 ## 一、这个扩展能做什么
@@ -16,7 +16,7 @@
 manifest.json          扩展清单（MV3）
 popup.html / popup.js  点图标后的弹窗：授权状态 + 激活 + 注入按钮
 licensing.js           激活码校验（HMAC 签名，离线可验）
-src/aizex_export.js    导出脚本本体（v3.41 + 授权门禁）
+src/aizex_export.js    导出脚本本体（v3.42 + 授权门禁）
 ```
 
 ## 二、2 分钟自测（免费版 → 专业版）
