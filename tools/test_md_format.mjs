@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v329.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v330.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------
@@ -67,6 +67,32 @@ function el(tag, opts = {}, children = []) {
   }
   return node;
 }
+// 极简 HTML 解析器：只够解析 <span class=".." style="..">文字</span> 这种结构，
+// 用来把 _数学节点样本.html 里真实的 KaTeX HTML 还原成节点树做回归
+function parseHtml(html) {
+  const doc = { nodeType: 9, childNodes: [] };
+  const stack = [doc];
+  const re = /<(\/?)([a-zA-Z][\w-]*)((?:\s+[\w:-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)>|([^<]+)/g;
+  let m;
+  while ((m = re.exec(html))) {
+    const parent = stack[stack.length - 1];
+    if (m[5] !== undefined) {
+      parent.childNodes.push({ nodeType: 3, nodeValue: m[5], childNodes: [], parentElement: parent });
+      continue;
+    }
+    if (m[1] === '/') { if (stack.length > 1) stack.pop(); continue; }
+    const attrs = {};
+    const are = /([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
+    let a;
+    while ((a = are.exec(m[3] || ''))) attrs[a[1]] = a[2] !== undefined ? a[2] : (a[3] !== undefined ? a[3] : a[4]);
+    const node = el(m[2], { class: attrs.class || '', attrs });
+    node.parentElement = parent;
+    parent.childNodes.push(node);
+    if (m[4] !== '/') stack.push(node);
+  }
+  return doc.childNodes.filter((n) => n.nodeType === 1);
+}
+
 function walk(root, sel, out) {
   for (const c of root.childNodes) {
     if (c.nodeType !== 1) continue;
@@ -103,7 +129,7 @@ function matchesOne(node, sel) {
 
 // ---------- 跑测试 ----------
 globalThis.state = {};
-const factory = new Function('state', snippet + snippetKey + '\n; return { mdFromElement, normalizeText, tidyMarkdown, collapseRepeats, looksLikePanelJson, stripPanelJson, cleanText, normalizeMathDelims, unionExtra, msgKey, proseOf };');
+const factory = new Function('state', snippet + snippetKey + '\n; return { mdFromElement, normalizeText, tidyMarkdown, collapseRepeats, looksLikePanelJson, stripPanelJson, cleanText, normalizeMathDelims, unionExtra, msgKey, proseOf, katexToLatex };');
 const api = factory(globalThis.state);
 
 let pass = 0, fail = 0;
@@ -236,7 +262,14 @@ const renderedOnly = el('div', { class: 'markdown' }, [
   ]),
 ]);
 const outRendered = api.mdFromElement(renderedOnly);
-check('排版结果当普通文字写（不包 $$）', outRendered.includes('n=1⋃∞An∈F') && !outRendered.includes('$$') && !outRendered.includes('$n='), outRendered);
+check('没有 mathml 层时按 HTML 结构还原成公式', outRendered.includes('$$') && outRendered.includes('n=1⋃∞An∈F'), outRendered);
+const sqrtOnly = el('div', { class: 'markdown' }, [
+  el('div', { class: 'katex-display' }, [
+    el('span', { class: 'katex' }, [el('span', { class: 'sqrt' }, [txt('x+1')])]),
+  ]),
+]);
+const outSqrt = api.mdFromElement(sqrtOnly);
+check('还原不了的结构当普通文字写', outSqrt.includes('x+1') && !outSqrt.includes('$'), outSqrt);
 
 // 13) 附录去重：公式写法不同也要认成同一条（v3.28 在这里误判过）
 const chosenApi = [{ role: 'assistant', text: '这两行非常关键。它们其实不是在讲新的集合运算，而是在证明一件事：\n\n$$\n\\sigma 域既然对“可列并、可列交”封闭\n$$\n\n但书上用了一个很巧的“补位”方法' }];
@@ -247,6 +280,41 @@ const domExtra = [{ role: 'assistant', text: '可以，这次我按你上传的�
 check('接口真的缺的那条保留下来', api.unionExtra(chosenShort, domExtra).length === 1, api.unionExtra(chosenShort, domExtra));
 const shortDup = api.unionExtra([{ role: 'assistant', text: '好的' }], [{ role: 'assistant', text: '好的' }]);
 check('极短消息也能识别重复', shortDup.length === 0, shortDup);
+
+// 14) KaTeX HTML → LaTeX 还原（拿 _数学节点样本.html 里的真实结构跑）
+const samplePath = 'D:/桌面/ai/ai项目/aizex聊天记录迁移/_数学节点样本.html';
+if (fs.existsSync(samplePath)) {
+  const samples = fs.readFileSync(samplePath, 'utf8')
+    .split(/<!--\s*样本\s*\d+\s*-->/).slice(1)
+    // 样本是按 1500 字截断的，末尾可能是半个标签，切到最后一个完整的 '>'
+    .map((s) => { const t = s.trim(); const k = t.lastIndexOf('>'); return k >= 0 ? t.slice(0, k + 1) : t; })
+    .filter(Boolean);
+  const rebuilt = samples.map((html) => api.katexToLatex(parseHtml(html)[0]));
+  console.log('  （真实样本还原结果：' + rebuilt.map((r) => JSON.stringify(r.tex)).join(' / ') + '）');
+  check('真实样本里 100+90+81+72.9 的顺序没被弄乱', /100\+90\+81\+72\.9/.test(rebuilt[0].tex.replace(/\n/g, '')), rebuilt[0]);
+  check('真实样本 R 还原成 R', rebuilt[1].tex === 'R' && rebuilt[1].ok, rebuilt[1]);
+  check('真实样本的分数还原成 \\frac{1}{R}（分子在前）', rebuilt[2].tex.includes('\\frac{1}{R}'), rebuilt[2]);
+  check('真实样本的 \\text{货币乘数} 保留', rebuilt[2].tex.includes('\\text{货币乘数}'), rebuilt[2]);
+  check('真实样本 R=1/5 还原正确', rebuilt[3].tex.replace(/\s/g, '') === 'R=1/5', rebuilt[3]);
+  check('真实样本 M=1/R 还原正确', rebuilt[4].tex.replace(/\s/g, '') === 'M=1/R', rebuilt[4]);
+} else {
+  console.log('  （跳过：没找到 _数学节点样本.html）');
+}
+
+// 15) 分数"先分母后分子"的形状必须还原成 \frac{ΔM}{M}
+const fracHtml = '<span class="katex"><span class="katex-html" aria-hidden="true"><span class="base">'
+  + '<span class="strut"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac">'
+  + '<span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist">'
+  + '<span style="top:-2.314em;"><span class="pstrut"></span><span class="mord"><span class="mord mathnormal">M</span></span></span>'
+  + '<span style="top:-3.23em;"><span class="pstrut"></span><span class="frac-line"></span></span>'
+  + '<span style="top:-3.677em;"><span class="pstrut"></span><span class="mord">ΔM</span></span>'
+  + '</span><span class="vlist-s">​</span></span></span></span>'
+  + '<span class="mclose nulldelimiter"></span></span><span class="mrel">=</span>'
+  + '<span class="mord">π</span></span></span></span>';
+const fracGot = api.katexToLatex(parseHtml(fracHtml)[0]);
+check('分母在前也会还原成 \\frac{ΔM}{M}', fracGot.tex.replace(/\s/g, '') === '\\frac{ΔM}{M}=π', fracGot);
+const fracMd = api.mdFromElement(el('div', { class: 'markdown' }, [parseHtml(fracHtml)[0]]));
+check('还原成功的公式写成 $…$', fracMd.includes('$\\frac{ΔM}{M}=π$'), fracMd);
 
 console.log('\n通过 ' + pass + ' / 失败 ' + fail);
 process.exit(fail ? 1 : 0);
