@@ -29,14 +29,14 @@ Aizex 这类 OpenAI 风格镜像面板（`*.memofun.net` / `*.aizex.net`）的�
 
 1. 用 Chrome 或 Edge 登录你的面板，进入聊天页面（左侧能看到会话列表）
 2. 按 `F12` 打开开发者工具，切到 **Console（控制台）**
-3. 打开 [src/aizex_export_v326.js](src/aizex_export_v326.js)，全选复制全部内容
+3. 打开 [src/aizex_export_v327.js](src/aizex_export_v327.js)，全选复制全部内容
 4. 粘贴到控制台，按回车
 5. 按页面右上角浮窗的提示：选保存文件夹 → 开始导出
 
 > 换新面板时，可以先粘贴 [tools/识别面板类型.js](tools/识别面板类型.js) 判断这个站点受不受支持。
 > 老版本脚本（v1 / v2 / v3 / v3.1）留在 [src/](src/) 里只作对照，不推荐使用。
 
-## 特性（当前 v3.26）
+## 特性（当前 v3.27）
 
 - **零安装**：控制台脚本不需要 Node / Python / 任何依赖，只用浏览器自带能力
 - **完整抓取**：优先接口直连；接口不可用时点开面板真实的折叠控件（`span.nextc-batch-trigger-action` 等）逐批展开，直到面板不再显示折叠块
@@ -45,8 +45,11 @@ Aizex 这类 OpenAI 风格镜像面板（`*.memofun.net` / `*.aizex.net`）的�
 - **增量续跑**：`_已完成清单.txt` 记录进度，中途停了再跑不重头来；`_待补清单.txt` 记录没抓全的
 - **内容保护**：新抓的比已有文件少时不覆盖已有内容
 - **格式保真**：代码块带语言围栏、表格转标准 Markdown、列表按层级缩进、行内格式保留
+- **公式保真**：识别 KaTeX / MathJax 节点，取 `<annotation>` 里的原始 TeX，写成 `$…$` / `$$…$$`（不会把渲染层再抄两三遍）
+- **不"空格变换行"**：按 DOM 结构换行，浏览器自动折的行不会变成换行
 - **图片下载**：收集会话里的图片并尝试下载到 `images/`，下不到的保留指针并在报告里标注
 - **按会话 ID 去重**：会话改过标题也不会变成两份文件，历史遗留的重复文件挪进 `_duplicates/`（不删除）
+- **按更新时间增量**：从接口读每条的 `update_time` 存进 `_同步台账.json`；下次运行只重抓"面板上有更新"的会话
 - **一键打包**：结束时自动生成 `归档_日期-时间.zip`（含 md + images + 索引 + manifest + 归档说明）
 - **本地桥接（可选）**：跑起 [tools/aizex_bridge_server.js](tools/aizex_bridge_server.js) 后，脚本直接写入指定文件夹，不用每次手动选
 - **隐私安全**：所有代码在你自己的浏览器里运行，不上传任何数据
@@ -64,24 +67,27 @@ Aizex 这类 OpenAI 风格镜像面板（`*.memofun.net` / `*.aizex.net`）的�
 │   ├── aizex_export_v2_snippet.js      # v2：接口识别 + 页面抓取增强
 │   ├── aizex_export_v3_snippet.js      # v3：增量续跑 + 滚动加载修复
 │   ├── aizex_export_v31_snippet.js     # v3.1：接口校验 + 坏文件自愈
-│   └── aizex_export_v326.js            # v3.26（推荐）：折叠全展开 + 完整自检 + 双源合并 + 归档包
+│   ├── aizex_export_v326.js            # v3.26：折叠全展开 + 完整自检 + 双源合并 + 归档包
+│   └── aizex_export_v327.js            # v3.27（推荐）：公式保真 + 换行修正 + 按更新时间增量
 ├── extension/                          # Chrome / Edge 扩展（Manifest V3）
 │   ├── manifest.json
 │   ├── popup.html / popup.js           # 点扩展图标后的弹窗
 │   ├── licensing.js                    # 激活码离线校验（密钥是占位符，自己改）
-│   ├── src/aizex_export.js             # 导出脚本本体（内容同 v3.26）
+│   ├── src/aizex_export.js             # 导出脚本本体（内容同 v3.27）
 │   └── README.md
 ├── tools/
 │   ├── aizex_bridge_server.js          # 可选：本地桥接服务（127.0.0.1:8787）
 │   ├── keygen.js                       # 生成激活码（密钥与 licensing.js 一致）
 │   ├── test_licensing.mjs              # 激活码自测
+│   ├── test_md_format.mjs              # Markdown 转换回归测试（公式/换行/过滤，17 项）
 │   └── 识别面板类型.js                  # 判断站点属于哪套前端、能不能用本导出器
 ├── docs/
 │   ├── 使用说明_v1.md
 │   ├── 使用说明_v2.md
 │   ├── 使用说明_v3.md
 │   ├── 使用说明_v31.md
-│   └── 使用说明_v326.md
+│   ├── 使用说明_v326.md
+│   └── 使用说明_v327.md
 └── sample/
     └── sample_export.md                # 导出文件格式示例
 ```
@@ -99,7 +105,8 @@ Aizex 这类 OpenAI 风格镜像面板（`*.memofun.net` / `*.aizex.net`）的�
 ├── 归档_日期-时间.zip           # 一键打包结果
 ├── _诊断_导出.md               # 每条会话抓了多少、是否完整
 ├── _已完成清单.txt             # 断点续跑用
-└── _待补清单.txt               # 没抓全的会话
+├── _待补清单.txt               # 没抓全的会话
+└── _同步台账.json              # 每条在面板上的更新时间 + 上次导出结果（增量靠它）
 ```
 
 ## 使用注意事项
