@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v328.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v329.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------
@@ -25,6 +25,14 @@ if (i0 < 0 || i1 < 0 || i1 <= i0) {
   process.exit(1);
 }
 const snippet = src.slice(i0, i1);
+// 去重那段单独抠出来（unionExtra / msgKey / proseOf）
+const j0 = src.indexOf('  function msgKey(t) {');
+const j1 = src.indexOf('  // 两个来源都抓');
+if (j0 < 0 || j1 < 0 || j1 <= j0) {
+  console.error('FAIL 没能从脚本里定位去重代码（v329 结构变了？）');
+  process.exit(1);
+}
+const snippetKey = src.slice(j0, j1);
 
 // ---------- 极小 DOM 替身 ----------
 function txt(v) { return { nodeType: 3, nodeValue: v, childNodes: [], parentElement: null }; }
@@ -95,7 +103,7 @@ function matchesOne(node, sel) {
 
 // ---------- 跑测试 ----------
 globalThis.state = {};
-const factory = new Function('state', snippet + '\n; return { mdFromElement, normalizeText, tidyMarkdown, collapseRepeats, looksLikePanelJson, stripPanelJson, cleanText, normalizeMathDelims };');
+const factory = new Function('state', snippet + snippetKey + '\n; return { mdFromElement, normalizeText, tidyMarkdown, collapseRepeats, looksLikePanelJson, stripPanelJson, cleanText, normalizeMathDelims, unionExtra, msgKey, proseOf };');
 const api = factory(globalThis.state);
 
 let pass = 0, fail = 0;
@@ -202,10 +210,43 @@ const inline = api.cleanText('设 \\(\\Omega\\) 是样本空间，\\(\\mathcal F
 check('\\(…\\) 换成 $…$', inline === '设 $\\Omega$ 是样本空间，$\\mathcal F$ 是 σ 域', inline);
 const fenced = api.cleanText('示例代码：\n\n```tex\n\\[ a+b \\]\n```\n\n正文 \\[c+d\\]');
 check('代码围栏里的 \\[…\\] 不动', fenced.includes('```tex\n\\[ a+b \\]\n```'), fenced);
-check('围栏外的 \\[…\\] 照换', fenced.includes('$$\nc+d\n$$'), fenced);
+check('围栏外夹在句中的 \\[…\\] 按行内换', fenced.includes('正文 $c+d$'), fenced);
 const inlineCode = api.cleanText('写法是 `\\[ x \\]`，实际用 \\[y\\]');
 check('行内代码里的 \\[…\\] 不动', inlineCode.includes('`\\[ x \\]`'), inlineCode);
 check('已经有 $$ 的不会再被改', api.normalizeMathDelims('$$\na=b\n$$') === '$$\na=b\n$$', api.normalizeMathDelims('$$\na=b\n$$'));
+
+// 11b) 判据：只有自己独占一行的 \[…\] 才能变成 $$ 块（v3.29 修的坑）
+const midSentence = api.cleanText('但 \\[\n0,1\n\\] 里面的点是**不可列无穷多个**。');
+check('句中的 \\[…\\] 按行内处理，不劈出 $$', midSentence === '但 $0,1$ 里面的点是**不可列无穷多个**。', midSentence);
+check('句中公式不会留下跨行 $$', !midSentence.includes('$$'), midSentence);
+const wrapped = api.cleanText('所以不能把\n\n\\[P([0,1])\\]\n\n理解成“不可列无穷多个 $0$ 相加”。');
+check('独占一行的 \\[…\\] 才是 $$ 块', wrapped.includes('$$\nP([0,1])\n$$'), wrapped);
+const insideCall = api.cleanText('即 P(\\[0,1\\]) 这点要注意');
+check('公式被文字包住时按行内处理', insideCall === '即 P($0,1$) 这点要注意', insideCall);
+const realQuote = api.cleanText('但 \\[\n0,1\n\\] 里面的点\n\n所以不能把\n\nP(\\[\n0,1\n\\])\n\n理解成“不可列无穷多个 $0$ 相加”。');
+check('真实引文片段里不再出现行内 $$', !/\$\$[^\n]/.test(realQuote) && !/[^\n]\$\$/.test(realQuote), JSON.stringify(realQuote));
+check('真实引文片段里 $ 个数是偶数', (realQuote.match(/\$/g) || []).length % 2 === 0, (realQuote.match(/\$/g) || []).length);
+
+// 12) 没有公式原文时不再假装成公式（面板 KaTeX 只输出 HTML）
+const renderedOnly = el('div', { class: 'markdown' }, [
+  el('div', { class: 'katex-display' }, [
+    el('span', { class: 'katex' }, [
+      el('span', { class: 'katex-html', attrs: { 'aria-hidden': 'true' } }, [txt('n=1⋃∞An∈F')]),
+    ]),
+  ]),
+]);
+const outRendered = api.mdFromElement(renderedOnly);
+check('排版结果当普通文字写（不包 $$）', outRendered.includes('n=1⋃∞An∈F') && !outRendered.includes('$$') && !outRendered.includes('$n='), outRendered);
+
+// 13) 附录去重：公式写法不同也要认成同一条（v3.28 在这里误判过）
+const chosenApi = [{ role: 'assistant', text: '这两行非常关键。它们其实不是在讲新的集合运算，而是在证明一件事：\n\n$$\n\\sigma 域既然对“可列并、可列交”封闭\n$$\n\n但书上用了一个很巧的“补位”方法' }];
+const domSame = [{ role: 'assistant', text: '这两行非常关键。它们其实不是在讲新的集合运算，而是在证明一件事：\n\n$$\nσ域既然对“可列并、可列交”封闭\n$$\n\n但书上用了一个很巧的“补位”方法' }];
+check('公式写法不同仍判为同一条', api.unionExtra(chosenApi, domSame).length === 0, api.unionExtra(chosenApi, domSame));
+const chosenShort = [{ role: 'user', text: '概率论基础 复旦大学 李贤平 第三版(1).pdf\n\nPDF\n\n从这里面挑能够覆盖全部知识点的题目清单' }];
+const domExtra = [{ role: 'assistant', text: '可以，这次我按你上传的《概率论基础》“习题一”1—50题逐题看过以后再筛。' }];
+check('接口真的缺的那条保留下来', api.unionExtra(chosenShort, domExtra).length === 1, api.unionExtra(chosenShort, domExtra));
+const shortDup = api.unionExtra([{ role: 'assistant', text: '好的' }], [{ role: 'assistant', text: '好的' }]);
+check('极短消息也能识别重复', shortDup.length === 0, shortDup);
 
 console.log('\n通过 ' + pass + ' / 失败 ' + fail);
 process.exit(fail ? 1 : 0);
