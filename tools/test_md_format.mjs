@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v334.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v335.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------

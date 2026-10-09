@@ -29,14 +29,14 @@ Aizex 这类 OpenAI 风格镜像面板（`*.memofun.net` / `*.aizex.net`）的�
 
 1. 用 Chrome 或 Edge 登录你的面板，进入聊天页面（左侧能看到会话列表）
 2. 按 `F12` 打开开发者工具，切到 **Console（控制台）**
-3. 打开 [src/aizex_export_v334.js](src/aizex_export_v334.js)，全选复制全部内容
+3. 打开 [src/aizex_export_v335.js](src/aizex_export_v335.js)，全选复制全部内容
 4. 粘贴到控制台，按回车
 5. 按页面右上角浮窗的提示：选保存文件夹 → 开始导出
 
 > 换新面板时，可以先粘贴 [tools/识别面板类型.js](tools/识别面板类型.js) 判断这个站点受不受支持。
 > 老版本脚本（v1 / v2 / v3 / v3.1）留在 [src/](src/) 里只作对照，不推荐使用。
 
-## 特性（当前 v3.34）
+## 特性（当前 v3.35）
 
 - **零安装**：控制台脚本不需要 Node / Python / 任何依赖，只用浏览器自带能力
 - **完整抓取**：优先接口直连；接口不可用时点开面板真实的折叠控件（`span.nextc-batch-trigger-action` 等）逐批展开，直到面板不再显示折叠块
@@ -46,6 +46,7 @@ Aizex 这类 OpenAI 风格镜像面板（`*.memofun.net` / `*.aizex.net`）的�
 - **内容保护**：新抓的比已有文件少时不覆盖已有内容
 - **格式保真**：代码块带语言围栏、表格转标准 Markdown、列表按层级缩进、行内格式保留
 - **公式保真**：以接口的原始 Markdown 为准（公式是 LaTeX 原文），`\[…\]` / `\(…\)` 统一换成预览器认的 `$$…$$` / `$…$`；只有独占一行的 `\[…\]` 才做独立块，句中 / 跨行的一律按行内，不会在段落中间劈出公式把后面的 `$` 带歪
+- **每轮清单很快**：接口能列全就直接用，不再重复滚侧边栏（那一趟能省几分钟）
 - **每轮按类型报清楚**：新对话 / 面板上有更新 / 旧格式升级，状态栏和诊断都分开写
 - **附件就地标注**：图片/文件放在它出现在的那条消息里，写 ![](images/xxx.png) + > 附件: 名字，不再堆到文末
 - **接口按 current_node 取主链**：重新生成 / 编辑过的会话也能取到页面上真正显示的那条，不会因为走错分支少消息
@@ -79,12 +80,13 @@ Aizex 这类 OpenAI 风格镜像面板（`*.memofun.net` / `*.aizex.net`）的�
 │   ├── aizex_export_v331.js            # v3.31：括号不丢 + 结构指纹取样
 │   ├── aizex_export_v332.js            # v3.32：更新时间台账 + 有更新自动重抓
 │   ├── aizex_export_v333.js            # v3.33：附件就地标注
-│   └── aizex_export_v334.js            # v3.34（推荐）：新对话/有更新分类报告
+│   ├── aizex_export_v334.js            # v3.34：新对话/有更新分类报告
+│   └── aizex_export_v335.js            # v3.35（推荐）：接口列全就不滚侧边栏
 ├── extension/                          # Chrome / Edge 扩展（Manifest V3）
 │   ├── manifest.json
 │   ├── popup.html / popup.js           # 点扩展图标后的弹窗
 │   ├── licensing.js                    # 激活码离线校验（密钥是占位符，自己改）
-│   ├── src/aizex_export.js             # 导出脚本本体（内容同 v3.34）
+│   ├── src/aizex_export.js             # 导出脚本本体（内容同 v3.35）
 │   └── README.md
 ├── tools/
 │   ├── aizex_bridge_server.js          # 可选：本地桥接服务（127.0.0.1:8787）
@@ -105,7 +107,8 @@ Aizex 这类 OpenAI 风格镜像面板（`*.memofun.net` / `*.aizex.net`）的�
 │   ├── 使用说明_v331.md
 │   ├── 使用说明_v332.md
 │   ├── 使用说明_v333.md
-│   └── 使用说明_v334.md
+│   ├── 使用说明_v334.md
+│   └── 使用说明_v335.md
 └── sample/
     └── sample_export.md                # 导出文件格式示例
 ```
