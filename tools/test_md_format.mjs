@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v340.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v341.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------
@@ -66,6 +66,14 @@ if (m0 < 0 || m1 < 0 || m1 <= m0) {
   process.exit(1);
 }
 const snippetToMd = src.slice(m0, m1);
+// 接口消息提取那段（链断了要能按全部节点取）
+const p0 = src.indexOf('  function mappingToMessages(');
+const p1 = src.indexOf('  function anyToMessages(');
+if (p0 < 0 || p1 < 0 || p1 <= p0) {
+  console.error('FAIL 没能从脚本里定位 mappingToMessages（v341 结构变了？）');
+  process.exit(1);
+}
+const snippetMap = src.slice(p0, p1);
 
 // ---------- 极小 DOM 替身 ----------
 function txt(v) { return { nodeType: 3, nodeValue: v, childNodes: [], parentElement: null }; }
@@ -168,6 +176,8 @@ const ledgerApi = new Function('state', 'writeFile', 'LEDGER_FILE', snippetLedge
 const imgApi = new Function(snippetImg + '\n; return { isUiImg, isTinyImg, UI_IMG_RE };')();
 const mdApi = new Function('state', 'location', snippetConsts + snippet + snippetKey + snippetToMd +
   '\n; return { toMarkdown };')(globalThis.state, { host: 'test.local' });
+const mapApi = new Function('state', snippetConsts + snippet + snippetMap +
+  '\n; return { mappingToMessages };')(globalThis.state);
 
 let pass = 0, fail = 0;
 function check(name, cond, extra) {
@@ -520,6 +530,39 @@ check('兜底成功就不写"未下载成功"', !fellBack.includes('未下载成
 check('兜底用的地址被记下来', Object.keys(failAtt.usedUrl).length === 1, failAtt.usedUrl);
 const noFallback = api.resolveAttachments('［图片:file-jNgKsM6YtMBIHm5BSsVSgx］看图', { total: 1, map: { 'file-x': '' }, used: {}, usedUrl: {} }, []);
 check('确实没图可用才提示去看面板', noFallback.includes('未下载成功'), noFallback);
+
+// 24) 接口消息提取：parent 链断了（镜像常见）时要能按"整张图按时间排"取全
+function mkNode(id, parent, role, text, t) {
+  return { id: id, parent: parent, children: [], message: { id: id, author: { role: role }, create_time: t, content: { content_type: 'text', parts: [text] } } };
+}
+// 正常：链完整
+const mapOk = {
+  n1: mkNode('n1', null, 'user', '第一个问题：什么是失业率', 1),
+  n2: mkNode('n2', 'n1', 'assistant', '失业率是失业人口占劳动力人口的比例', 2),
+  n3: mkNode('n3', 'n2', 'user', '那统计口径呢', 3),
+};
+const okMsgs = mapApi.mappingToMessages(mapOk, null, 'n3');
+check('链完整时按链取（顺序正确）', okMsgs.length === 3 && okMsgs[0].text.indexOf('第一个问题') === 0, okMsgs.map((m) => m.text));
+check('链完整时标记为 chain', okMsgs.__apiMode === 'chain', okMsgs.__apiMode);
+
+// 链断：中间某个节点的 parent 指向不存在的 id（镜像的常见情况），链只能取到后半截，
+// 但整张节点图里其实全都在
+const mapBroken = {
+  a1: mkNode('a1', 'MISSING', 'user', '很早的一问：先定研究对象', 1),
+  a2: mkNode('a2', 'a1', 'assistant', '很久以前的一答：先把对象拆成三层', 2),
+  a3: mkNode('a3', 'a2', 'user', '中间一问：数据从哪来', 3),
+  a4: mkNode('a4', 'a3', 'assistant', '中间一答：三类公开渠道', 4),
+  a5: mkNode('a5', 'GONE', 'user', '最近一问：怎么落地', 5),
+  a6: mkNode('a6', 'a5', 'assistant', '最近一答：先做小样本', 6),
+  a7: mkNode('a7', 'a6', 'user', '继续问：样本要多大', 7),
+  a8: mkNode('a8', 'a7', 'assistant', '继续答：先三百条起', 8),
+  a9: mkNode('a9', 'a8', 'user', '最后问：怎么核对', 9),
+  a10: mkNode('a10', 'a9', 'assistant', '最后答：抽十条人工比', 10),
+};
+const brokenMsgs = mapApi.mappingToMessages(mapBroken, null, 'a10');
+check('链断了也能取全（按全部节点+时间）', brokenMsgs.length === 10 && brokenMsgs.__apiMode === 'all-nodes',
+  { n: brokenMsgs.length, mode: brokenMsgs.__apiMode, chain: brokenMsgs.__chainLen, all: brokenMsgs.__allLen });
+check('链断时按时间正序', brokenMsgs[0].text.indexOf('很早的一问') === 0 && brokenMsgs[9].text.indexOf('最后答') === 0, brokenMsgs.map((m) => m.text));
 
 console.log('\n通过 ' + pass + ' / 失败 ' + fail);
 process.exit(fail ? 1 : 0);
