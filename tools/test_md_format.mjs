@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v344.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v345.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------
@@ -72,6 +72,14 @@ if (s0 < 0 || s1 < 0 || s1 <= s0) {
   process.exit(1);
 }
 const snippetSniff = src.slice(s0, s1);
+// 从下载接口返回的 JSON 里挖图片地址/base64
+const asset0 = src.indexOf('  function findAssetInJson(');
+const asset1 = src.indexOf('  // 图片：先尝试下载到 images/ 子目录');
+if (asset0 < 0 || asset1 < 0 || asset1 <= asset0) {
+  console.error('FAIL 没能从脚本里定位 findAssetInJson（v345 结构变了？）');
+  process.exit(1);
+}
+const snippetJson = src.slice(asset0, asset1);
 const snippetToMd = src.slice(m0, m1);
 // 接口消息提取那段（链断了要能按全部节点取）
 const p0 = src.indexOf('  function mappingToMessages(');
@@ -182,6 +190,7 @@ const api = factory(globalThis.state);
 const ledgerApi = new Function('state', 'writeFile', 'LEDGER_FILE', snippetLedger + '\n; return { toEpochMs, fmtLocalTime, snapshotLedger, ledgerTouch, buildPending };')(globalThis.state, async () => {}, '_同步台账.json');
 const imgApi = new Function(snippetImg + '\n; return { isUiImg, isTinyImg, UI_IMG_RE };')();
 const sniffApi = new Function(snippetSniff + '\n; return { sniffExt };')();
+const jsonApi = new Function(snippetJson + '\n; return { findAssetInJson };')();
 const mdApi = new Function('state', 'location', snippetConsts + snippet + snippetKey + snippetToMd +
   '\n; return { toMarkdown };')(globalThis.state, { host: 'test.local' });
 const mapApi = new Function('state', snippetConsts + snippet + snippetMap +
@@ -601,6 +610,16 @@ for (const pair of sniffCases) {
 }
 check('文件头魔数识别图片/文件类型', sniffOk === sniffCases.length, sniffOk + '/' + sniffCases.length);
 check('认不出来的返回空（不硬塞扩展名）', (await sniffApi.sniffExt(fakeBlob([0x3C, 0x21, 0x44, 0x4F, 0x43]))) === '', 'html-like');
+
+// 26) 下载接口返回的是 JSON（实测 content-type: application/json）——要把图片从里面挖出来
+check('认识 download_url', jsonApi.findAssetInJson({ download_url: 'https://files.x/y.png' }) === 'https://files.x/y.png', 'download_url');
+check('认识相对地址 url', jsonApi.findAssetInJson({ url: '/backend-api/files/x/content' }) === '/backend-api/files/x/content', 'url');
+check('认识嵌在 file 里的地址', jsonApi.findAssetInJson({ file: { download_url: 'https://files.x/z.jpg' } }) === 'https://files.x/z.jpg', 'nested');
+check('认识 b64_json（OpenAI 镜像常见）',
+  jsonApi.findAssetInJson({ b64_json: 'iVBORw0KGgoAAAANSUhEUg' + 'A'.repeat(80) }).startsWith('data:application/octet-stream;base64,'), 'b64');
+check('认识 data:image 直链',
+  jsonApi.findAssetInJson({ data: [{ url: 'data:image/png;base64,AAAA' }] }) === 'data:image/png;base64,AAAA', 'dataUrl');
+check('没有可用字段时返回空', jsonApi.findAssetInJson({ status: 'ok', result: null, count: 3 }) === '', 'empty');
 
 console.log('\n通过 ' + pass + ' / 失败 ' + fail);
 process.exit(fail ? 1 : 0);

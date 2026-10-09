@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.45（2026-10-09）
+- **知道下载端点返回的是什么了**：实测 `/backend-api/files/<id>/download` 返回 **200 + `application/json`**，图片在 JSON 里，但字段名不是代码认识的 `download_url`/`url`，所以白跑一趟
+- 现在按顺序从 JSON 里挖：常见直链字段（`download_url`/`url`/`file_url`/`signed_url`/`href`/`path`…）→ base64 字段（`b64_json`/`base64`/`data_base64`…，OpenAI 镜像常见）→ 递归任意字段找地址或 base64；拿到后用文件头魔数判类型
+- 日志里记下**这段 JSON 的字段名**（前 8 个），万一还取不到就能直接对着补
+- 格式标记 `md-v12` → `md-v13`
+- 回归测试扩到 114 项
 ## v3.44（2026-10-09）
 - **找到图片下载失败的真正卡点**：镜像站的 `/backend-api/files/<id>/download` 返回 **200（成功）**，但代码只认 content-type 是 json / image / octet-stream 三种，**把 200 的响应当垃圾扔了**，转头去试后面那些注定 404 的端点。文件里"试过的地址"那行就是证据：`download 200；其余 404`
 - 现在 200 就拿字节；类型改用**文件头魔数**判断（png/jpg/gif/webp/pdf/bmp），不依赖 content-type；判不出类型（多半是登录页/错误页）才跳过，并记进日志
