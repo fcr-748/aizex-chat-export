@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v331.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v332.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------
@@ -33,6 +33,15 @@ if (j0 < 0 || j1 < 0 || j1 <= j0) {
   process.exit(1);
 }
 const snippetKey = src.slice(j0, j1);
+// 台账与增量判断那段也抠出来（toEpochMs / fmtLocalTime / snapshotLedger / ledgerTouch / buildPending）
+const k0 = src.indexOf('  function toEpochMs(v) {');
+const k1 = src.indexOf('  async function writeLedger() {');
+const k2 = src.indexOf('  // 从单个 md 文件解析出会话结构');
+if (k0 < 0 || k1 < 0 || k2 < 0 || k1 <= k0) {
+  console.error('FAIL 没能从脚本里定位台账代码（v332 结构变了？）');
+  process.exit(1);
+}
+const snippetLedger = src.slice(k0, k1) + src.slice(src.indexOf('  function buildPending(convs) {'), k2);
 
 // ---------- 极小 DOM 替身 ----------
 function txt(v) { return { nodeType: 3, nodeValue: v, childNodes: [], parentElement: null }; }
@@ -131,6 +140,7 @@ function matchesOne(node, sel) {
 globalThis.state = {};
 const factory = new Function('state', snippet + snippetKey + '\n; return { mdFromElement, normalizeText, tidyMarkdown, collapseRepeats, looksLikePanelJson, stripPanelJson, cleanText, normalizeMathDelims, unionExtra, msgKey, proseOf, katexToLatex, delimsFromPieces, katexCoverageOk };');
 const api = factory(globalThis.state);
+const ledgerApi = new Function('state', 'writeFile', 'LEDGER_FILE', snippetLedger + '\n; return { toEpochMs, fmtLocalTime, snapshotLedger, ledgerTouch, buildPending };')(globalThis.state, async () => {}, '_同步台账.json');
 
 let pass = 0, fail = 0;
 function check(name, cond, extra) {
@@ -332,6 +342,45 @@ const delimRoot = parseHtml(delimHtml)[0];
 check('还原漏了右括号会被判为不可用', api.katexCoverageOk(delimRoot, '(0,1') === false, api.katexCoverageOk(delimRoot, '(0,1'));
 check('括号齐了就算可用', api.katexCoverageOk(delimRoot, '(0,1)') === true, true);
 check('\\left( \\right) 这种命令写法也算括号齐', api.katexCoverageOk(delimRoot, '\\left(0,1\\right)') === true, true);
+
+// 18) 更新时间台账 + "面板上有更新就重抓"
+const lstate = {};
+const led = new Function('state', 'writeFile', 'LEDGER_FILE', snippetLedger +
+  '\n; return { toEpochMs, fmtLocalTime, snapshotLedger, ledgerTouch, buildPending };')(lstate, async () => {}, '_同步台账.json');
+const t1 = 1791500000;                    // 面板给的是"秒"
+const mk = (id, title, t) => ({ id, title, update_time: t });
+const A = 'aaaa1111-1111-1111-1111-111111111111';
+const B = 'bbbb2222-2222-2222-2222-222222222222';
+const C = 'cccc3333-3333-3333-3333-333333333333';
+led.snapshotLedger([mk(A, '会话A', t1), mk(B, '会话B', t1), mk(C, '会话C', t1)]);
+check('快照把每条会话都记进台账', Object.keys(lstate.ledger).length === 3 && lstate.ledger[A].updateEpoch === t1, Object.keys(lstate.ledger));
+check('台账里同时记了可读时间', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(lstate.ledger[A].updatedAt), lstate.ledger[A].updatedAt);
+
+// 已经抓全（带新机制 + 当前格式标记）的会话
+const taggedAll = { aaaa1111: 1, bbbb2222: 1, cccc3333: 1 };
+const doneAll = { aaaa1111: 1, bbbb2222: 1, cccc3333: 1 };
+function runPending(convs, ledger, doneSet, doneNewSet) {
+  lstate.ledger = ledger; lstate.doneSet = doneSet; lstate.doneNewSet = doneNewSet;
+  lstate.forceKw = []; lstate.skipExisting = true; lstate.changedList = [];
+  return led.buildPending(convs);
+}
+// A 没变 → 跳过；B 面板时间变新了 → 重抓；C 台账里没有 → 重抓
+const ledger2 = Object.assign({}, lstate.ledger);
+ledger2[B] = Object.assign({}, ledger2[B], { updateEpoch: t1 - 3600, updatedAt: '更早的时间' });
+delete ledger2[C];
+const pending = runPending([mk(A, '会话A', t1), mk(B, '会话B', t1), mk(C, '会话C', t1)], ledger2, doneAll, taggedAll);
+const pendIds = pending.map((x) => x.id.slice(0, 4)).sort();
+check('没更新的跳过、有更新的重抓、没台账的重抓', pendIds.join(',') === 'bbbb,cccc', pendIds);
+check('重抓清单记下了新时间和旧时间', lstate.changedList.length === 2 &&
+  lstate.changedList[0].updatedAt === led.fmtLocalTime(led.toEpochMs(t1)) &&
+  lstate.changedList[0].was === '更早的时间', lstate.changedList);
+
+// 中断语义：这轮没抓到的会话，面板时间变了也不能把台账时间改成新的（否则下次就不抓了）
+led.snapshotLedger([mk(B, '会话B', t1 + 999)]);
+check('没抓到的更新不会被台账吞掉', lstate.ledger[B].updateEpoch === t1 - 3600, lstate.ledger[B]);
+// 抓到了就更新台账
+led.ledgerTouch({ id: B, title: '会话B', update_time: t1 + 999 }, { msgs: 3, chars: 100, file: 'B.md' });
+check('抓过之后台账更新成新的时间', lstate.ledger[B].updateEpoch === t1 + 999 && lstate.ledger[B].msgs === 3, lstate.ledger[B]);
 
 console.log('\n通过 ' + pass + ' / 失败 ' + fail);
 process.exit(fail ? 1 : 0);
