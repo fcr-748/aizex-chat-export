@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v333.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v334.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------
@@ -374,6 +374,23 @@ check('没更新的跳过、有更新的重抓、没台账的重抓', pendIds.jo
 check('重抓清单记下了新时间和旧时间', lstate.changedList.length === 2 &&
   lstate.changedList[0].updatedAt === led.fmtLocalTime(led.toEpochMs(t1)) &&
   lstate.changedList[0].was === '更早的时间', lstate.changedList);
+
+// 18b) 分类：新对话 / 面板上有更新 / 旧格式升级 / 关键词强制
+const D = 'dddd4444-4444-4444-4444-444444444444';   // 新对话：磁盘上没有
+const E = 'eeee5555-5555-5555-5555-555555555555';   // 老格式：有文件但没格式标记
+const F = 'ffff6666-6666-6666-6666-666666666666';   // 关键词强制
+const ledger3 = Object.assign({}, lstate.ledger);
+ledger3[B] = Object.assign({}, ledger3[B], { updateEpoch: t1 - 60 });
+const kindsState = { doneSet: { aaaa1111: 1, bbbb2222: 1, eeee5555: 1, ffff6666: 1 }, doneNewSet: { aaaa1111: 1, bbbb2222: 1, ffff6666: 1 },
+  ledger: ledger3, forceKw: ['强制'], skipExisting: true, kinds: null };
+const newFn = new Function('state', 'writeFile', 'LEDGER_FILE', snippetLedger +
+  '\n; return { buildPending };')(kindsState, async () => {}, '_同步台账.json');
+const pend2 = newFn.buildPending([mk(A, '会话A', t1), mk(B, '会话B', t1), mk(D, '新对话D', t1), mk(E, '老格式E', t1), mk(F, '强制F', t1)]);
+check('分类计数正确', kindsState.kindCounts['new'] === 1 && kindsState.kindCounts.changed === 1 &&
+  kindsState.kindCounts.upgrade === 1 && kindsState.kindCounts.force === 1, kindsState.kindCounts);
+check('新对话认出来了', kindsState.kinds['new'][0].title === '新对话D', kindsState.kinds['new']);
+check('有更新认出来了', kindsState.kinds.changed[0].title === '会话B', kindsState.kinds.changed);
+check('新对话即使接口没给时间也会抓', newFn.buildPending([{ id: D, title: '新对话D', update_time: 0 }]).length === 1, 'x');
 
 // 中断语义：这轮没抓到的会话，面板时间变了也不能把台账时间改成新的（否则下次就不抓了）
 led.snapshotLedger([mk(B, '会话B', t1 + 999)]);
