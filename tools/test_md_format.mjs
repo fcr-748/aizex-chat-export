@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v327.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v328.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------
@@ -95,7 +95,7 @@ function matchesOne(node, sel) {
 
 // ---------- 跑测试 ----------
 globalThis.state = {};
-const factory = new Function('state', snippet + '\n; return { mdFromElement, normalizeText, collapseRepeats, looksLikePanelJson };');
+const factory = new Function('state', snippet + '\n; return { mdFromElement, normalizeText, tidyMarkdown, collapseRepeats, looksLikePanelJson, stripPanelJson, cleanText, normalizeMathDelims };');
 const api = factory(globalThis.state);
 
 let pass = 0, fail = 0;
@@ -170,6 +170,42 @@ const outHead = api.mdFromElement(heads);
 check('标题保留层级', outHead.includes('### 一、证明'), outHead);
 check('引用写成 > ', outHead.includes('> 若幂级数收敛'), outHead);
 check('分隔线写成 ---', outHead.includes('---'), outHead);
+
+// 8) 接口正文里被拆散的图片 JSON 残渣（v3.28）
+const tail = ',"size_bytes":327298,"width":1005}请解释：为什么元素总数为2n';
+check('半截 JSON 残渣被清掉', api.cleanText(tail) === '请解释：为什么元素总数为2n', api.cleanText(tail));
+const blob = '{"asset_pointer":"file-service://file-ABC","content_type":"image_asset_pointer","fovea":null,"height":535,"metadata":{"dalle":null,"sanitized":true},"size_bytes":122948,"width":1139}这里的由类似性质1';
+const blobOut = api.cleanText(blob);
+check('整块 JSON 被清掉、正文留下', blobOut === '［图片］这里的由类似性质1', blobOut);
+check('清理是幂等的', api.cleanText(blobOut) === blobOut, api.cleanText(blobOut));
+const twoImgs = api.cleanText('{"asset_pointer":"file-service://file-A","width":1}{"asset_pointer":"file-service://file-B","width":2}看图');
+check('连着两个 JSON 都清掉', twoImgs === '［图片］［图片］看图', twoImgs);
+
+// 9) 去重不能误伤：分隔线、笑声、正常文本
+check('不会把 ======== 压短', api.normalizeText('========') === '========', api.normalizeText('========'));
+check('不会把连续笑声压短', api.normalizeText('哈哈哈哈哈哈哈哈') === '哈哈哈哈哈哈哈哈', api.normalizeText('哈哈哈哈哈哈哈哈'));
+check('公式三连仍然会被压成一次', api.normalizeText('$a_{ij}x_j$.$a_{ij}x_j$.$a_{ij}x_j$.') === '$a_{ij}x_j$.', api.normalizeText('$a_{ij}x_j$.$a_{ij}x_j$.$a_{ij}x_j$.'));
+
+// 10) 代码块缩进不会被制表符转换动到（结构化路径走 tidyMarkdown）
+const codeMsg = el('div', { class: 'markdown' }, [
+  el('pre', {}, [el('code', {}, [txt('def f():\n\treturn 1')])]),
+]);
+const outCode = api.mdFromElement(codeMsg);
+check('代码块里的制表符保留', outCode.includes('def f():\n\treturn 1'), outCode);
+
+// 11) 公式定界符：\[…\] → $$…$$、\(…\) → $…$（预览器不认前一种）
+const realSample = api.cleanText('可以。积分因子法就是专门处理：\n\n\\[\n\\boxed{M(x,y)\\,dx+N(x,y)\\,dy=0}\n\\]\n\n**本身不是恰当方程**，但乘上一个函数后…');
+check('\\[…\\] 换成 $$…$$', realSample.includes('$$\n\\boxed{M(x,y)\\,dx+N(x,y)\\,dy=0}\n$$'), realSample);
+check('公式体里的 \\, 原样保留', realSample.includes('\\,'), realSample);
+check('\\[…\\] 的花括号不再被当成转义', !realSample.includes('\\[') && !realSample.includes('\\]'), realSample);
+const inline = api.cleanText('设 \\(\\Omega\\) 是样本空间，\\(\\mathcal F\\) 是 σ 域');
+check('\\(…\\) 换成 $…$', inline === '设 $\\Omega$ 是样本空间，$\\mathcal F$ 是 σ 域', inline);
+const fenced = api.cleanText('示例代码：\n\n```tex\n\\[ a+b \\]\n```\n\n正文 \\[c+d\\]');
+check('代码围栏里的 \\[…\\] 不动', fenced.includes('```tex\n\\[ a+b \\]\n```'), fenced);
+check('围栏外的 \\[…\\] 照换', fenced.includes('$$\nc+d\n$$'), fenced);
+const inlineCode = api.cleanText('写法是 `\\[ x \\]`，实际用 \\[y\\]');
+check('行内代码里的 \\[…\\] 不动', inlineCode.includes('`\\[ x \\]`'), inlineCode);
+check('已经有 $$ 的不会再被改', api.normalizeMathDelims('$$\na=b\n$$') === '$$\na=b\n$$', api.normalizeMathDelims('$$\na=b\n$$'));
 
 console.log('\n通过 ' + pass + ' / 失败 ' + fail);
 process.exit(fail ? 1 : 0);
