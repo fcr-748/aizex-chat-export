@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.join(HERE, '..', 'src', 'aizex_export_v330.js');
+const SRC = path.join(HERE, '..', 'src', 'aizex_export_v331.js');
 const src = fs.readFileSync(SRC, 'utf8');
 
 // ---------- 从脚本里抠出转换代码 ----------
@@ -129,7 +129,7 @@ function matchesOne(node, sel) {
 
 // ---------- 跑测试 ----------
 globalThis.state = {};
-const factory = new Function('state', snippet + snippetKey + '\n; return { mdFromElement, normalizeText, tidyMarkdown, collapseRepeats, looksLikePanelJson, stripPanelJson, cleanText, normalizeMathDelims, unionExtra, msgKey, proseOf, katexToLatex };');
+const factory = new Function('state', snippet + snippetKey + '\n; return { mdFromElement, normalizeText, tidyMarkdown, collapseRepeats, looksLikePanelJson, stripPanelJson, cleanText, normalizeMathDelims, unionExtra, msgKey, proseOf, katexToLatex, delimsFromPieces, katexCoverageOk };');
 const api = factory(globalThis.state);
 
 let pass = 0, fail = 0;
@@ -315,6 +315,23 @@ const fracGot = api.katexToLatex(parseHtml(fracHtml)[0]);
 check('分母在前也会还原成 \\frac{ΔM}{M}', fracGot.tex.replace(/\s/g, '') === '\\frac{ΔM}{M}=π', fracGot);
 const fracMd = api.mdFromElement(el('div', { class: 'markdown' }, [parseHtml(fracHtml)[0]]));
 check('还原成功的公式写成 $…$', fracMd.includes('$\\frac{ΔM}{M}=π$'), fracMd);
+
+// 16) 放大括号不能丢：KaTeX 把它们放在 .delimsizing 里，且是"拼片"字符
+check('拼片 ⎛⎜⎝ 拼回 (', api.delimsFromPieces('⎛⎜⎝') === '(', api.delimsFromPieces('⎛⎜⎝'));
+check('拼片 ⎡⎢⎣ 拼回 [', api.delimsFromPieces('⎡⎢⎣') === '[', api.delimsFromPieces('⎡⎢⎣'));
+check('普通连续括号不被压掉', api.delimsFromPieces('))') === '))', api.delimsFromPieces('))'));
+const delimHtml = '<span class="katex"><span class="katex-html" aria-hidden="true"><span class="base">'
+  + '<span class="strut"></span><span class="mopen"><span class="delimsizing size1">⎛⎜⎝</span></span>'
+  + '<span class="mord">0,1</span>'
+  + '<span class="mclose"><span class="delimsizing size1">⎞⎟⎠</span></span></span></span></span>';
+const delimGot = api.katexToLatex(parseHtml(delimHtml)[0]);
+check('括号还原出来', delimGot.tex.replace(/\s/g, '') === '(0,1)' && delimGot.ok, delimGot);
+
+// 17) 括号覆盖检查：页面上有括号、但还原结果里没有 → 判为不可用
+const delimRoot = parseHtml(delimHtml)[0];
+check('还原漏了右括号会被判为不可用', api.katexCoverageOk(delimRoot, '(0,1') === false, api.katexCoverageOk(delimRoot, '(0,1'));
+check('括号齐了就算可用', api.katexCoverageOk(delimRoot, '(0,1)') === true, true);
+check('\\left( \\right) 这种命令写法也算括号齐', api.katexCoverageOk(delimRoot, '\\left(0,1\\right)') === true, true);
 
 console.log('\n通过 ' + pass + ' / 失败 ' + fail);
 process.exit(fail ? 1 : 0);
